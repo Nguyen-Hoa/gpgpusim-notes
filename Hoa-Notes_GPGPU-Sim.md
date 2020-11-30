@@ -4,7 +4,7 @@ The following notes focus on the architecture simulation of GPGPU-Sim, namely th
 ## Simulated Architecture
 
 ### High Level Design
-GPGPU Sim splits into 2 main programs, cuda-sim and gpgpu-sim, providing a functional and performance (execution) simulations respectively. Nvidia graphics cards are composed of streaming multiprocessors (SM) that contain caches, registers, and execution hardware. In GPGPU-Sim, a single instruction multiple thread (SIMT) core mimics the Nvidia SM, similarly composed of caches and registers. Each SIMT core executes one thread block, and is scheduled using round robin.
+GPGPU Sim splits into 2 main programs, cuda-sim and gpgpu-sim, providing functional and performance (execution) simulations respectively. Nvidia graphics cards are composed of streaming multiprocessors (SM) that contain caches, registers, and execution hardware. In GPGPU-Sim, a single instruction multiple thread (SIMT) core mimics the Nvidia SM, similarly composed of caches and registers. Each SIMT core executes one thread block, and is scheduled using round robin.
 
 SIMT core cycle (software implementation): fetch > decode > issue > read_operand > execute > writeback
 
@@ -46,16 +46,16 @@ There are 4 L1 memories supported in GPGPU-Sim: Shared (R/W), Constant (R), Text
 ---
 
 ### Kernel Execution Example
-Once a kernel is launched, a grid is used to represent the work for that kernel. This grid is composed of thread blocks that each execute on an SIMT Core. That is one block for one core. At the SIMT Core level, the blocks are divided into warps, which are a group of threads that execute in parallel. Each thread contains instructions. Once a warp is scheduled for a core, the I-Buffer (which is initially empty or invalid) will fill up with fresh decoded instructions loaded from the I-Cache. (This should consume 2 clock cycles?). In the following clock cycle, the instructions will flow into the collector unit, waiting to be issued. Since this is the first instruction, the registers should all be ready, so the arbiter will have set the valid bits, and the instruction and it's operands flow into the ALU. Whether this is a memory or non-memory access instruction, the proper unit will take the neccessary clock cycles to perform the operation and the result will flow into the writeback stage. The writeback stage involves the arbiter once again, which will give it priority over the upcoming instructions to update the register file. Assuming no stalls, barriers, or branches, this will complete the execution of one instruction. 
+Once a kernel is launched, a grid is used to represent the work for that kernel. This grid is composed of thread blocks that each execute on a SIMT Core. That is one block for one core. At the SIMT Core level, the blocks are divided into warps, which are a group of threads that execute in parallel. Each thread contains instructions. Once a warp is scheduled for a core, the I-Buffer (which is initially empty or invalid) will fill up with fresh decoded instructions loaded from the I-Cache. In the following clock cycle, the instructions will flow into the collector unit, waiting to be issued. Since this is the first instruction, the registers should all be ready, so the arbiter will have set the valid bits, and the instruction and it's operands flow into the ALU. Whether this is a memory or non-memory access instruction, the proper unit will take the neccessary clock cycles to perform the operation and the result will flow into the writeback stage. The writeback stage involves the arbiter once again, which will give it priority over the upcoming instructions to update the register file. Assuming no stalls, barriers, or branches, this will complete the execution of one instruction. 
 
 ---
 
 ## Software
 The two main programs, cuda-sim and gpgpu-sim, provide functional and performance (execution) simulations respectively. The functional simulation interprets binaries (PTX instructions) compiled by NVCC, and executes them functionally. The performance simulation executes instructions based on the state of the functional simulation. 
 
-The SIMT core cluster class, *simt_core_cluster*, contains an array of SIMT Core classes, *shader_core_ctx*. The cluster's responsibility is to inject packets (block?) containing instructions to each SIMT core's I-Cache. 
+The SIMT core cluster class, *simt_core_cluster*, contains an array of SIMT Core classes, *shader_core_ctx*. The cluster's responsibility is to inject packets (block?) containing instructions to each SIMT core's I-Cache and invoking execution in round-robin order via each core's *cycle()* function.
 
-The class representing a SIMT core is *shader_core_ctx*. This class provides the implementation for the simulated architecture pipeline (fetch(), decode(), issue(), etc.). It contains a member varialbe *m_thread* which is an array of *ptx_thread_info*, representing all the active threads of the simulated SIMT core.
+The class representing a SIMT core is *shader_core_ctx*. This class provides the implementation for the simulated architecture pipeline (fetch(), decode(), issue(), etc.). It contains a member variable *m_thread* which is an array of *ptx_thread_info*, representing all the active threads of the simulated SIMT core.
 
 The I-Cache stores a array of *shd_warp_t* objects, which contains a set of *ibuffer_entry* objects. 
 The I-Buffer, represented by *m_ibuffer*, stores *ibuffer_entry* objects.
@@ -65,6 +65,26 @@ The fetch() function of a *shader_core_ctx* class grabs *shd_warp_t* objects sto
 The *warp_inst_t* class represents an instance of an instruction being executed by a single warp, composed of the type of operation and operands used. Once the performance simulator executes an instruction, the functional simulator updates the thread state. 
 
 ## src/gpgpu-sim
+
+### shader.cc <lines 3356-3368>
+
+The *cycle* function for the *shader_core_ctx* class performs one architecture cycle, described in the previouse sections. The first if statement checks whether the core is active and that there are instructions to complete; if neither, then the cycle does not proceed. When the cycle proceeds after the if statement, the counter associated with number of cycles a shader performs is updated. This is done via *m_stats* object unique to the core, which is of the type, *shader_core_stats*, by presenting with the array with a shader ID, *m_sid* and iterating. Next, the pipeline functions are invoked backwards so that later stages finish before earlier stages and the results can flow similar to the pipeline effect. Finally, the for loop that holds the decode and fetch stage loops for the maximum allowed instructions fetches per cycle.
+
+``` c++
+void shader_core_ctx::cycle() {
+  if (!isactive() && get_not_completed() == 0) return;
+
+  m_stats->shader_cycles[m_sid]++;
+  writeback();
+  execute();
+  read_operands();
+  issue();
+  for (int i = 0; i < m_config->inst_fetch_throughput; ++i) {
+    decode();
+    fetch();
+  }
+}
+```
 
 ## src/cuda-sim
 
