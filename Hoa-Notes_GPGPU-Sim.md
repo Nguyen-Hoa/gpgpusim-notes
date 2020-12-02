@@ -53,11 +53,11 @@ Once a kernel is launched, a grid is used to represent the work for that kernel.
 ## Software
 The two main programs, cuda-sim and gpgpu-sim, provide functional and performance (execution) simulations respectively. The functional simulation interprets binaries (PTX instructions) compiled by NVCC, and executes them functionally. The performance simulation executes instructions based on the state of the functional simulation. 
 
-The SIMT core cluster class, *simt_core_cluster*, contains an array of SIMT Core classes, *shader_core_ctx*. The cluster's responsibility is to inject packets (block?) containing instructions to each SIMT core's I-Cache and invoking execution in round-robin order via each core's *cycle()* function.
+The SIMT core cluster class, *simt_core_cluster*, contains an array of SIMT Core objects, *shader_core_ctx*. The cluster's responsibility is to inject packets (thread block?) containing instructions to each SIMT core's I-Cache and invoking execution in round-robin order via each core's *cycle()* function.
 
 The class representing a SIMT core is *shader_core_ctx*. This class provides the implementation for the simulated architecture pipeline (fetch(), decode(), issue(), etc.). It contains a member variable *m_thread* which is an array of *ptx_thread_info*, representing all the active threads of the simulated SIMT core.
 
-The I-Cache stores a array of *shd_warp_t* objects, which contains a set of *ibuffer_entry* objects. 
+The I-Cache stores an array of *shd_warp_t* objects, which contains a set of *ibuffer_entry* objects. 
 The I-Buffer, represented by *m_ibuffer*, stores *ibuffer_entry* objects.
 
 The fetch() function of a *shader_core_ctx* class grabs *shd_warp_t* objects stored in the I-Cache. Once an entry is decoded, it stores a pointer to a *warp_inst_t* object.
@@ -68,7 +68,7 @@ The *warp_inst_t* class represents an instance of an instruction being executed 
 
 ### shader.cc <lines 3356-3368>
 
-The *cycle* function for the *shader_core_ctx* class performs one architecture cycle, described in the previouse sections. The first if statement checks whether the core is active and that there are instructions to complete; if neither, then the cycle does not proceed. When the cycle proceeds after the if statement, the counter associated with number of cycles a shader performs is updated. This is done via *m_stats* object unique to the core, which is of the type, *shader_core_stats*, by presenting with the array with a shader ID, *m_sid* and iterating. Next, the pipeline functions are invoked backwards so that later stages finish before earlier stages and the results can flow similar to the pipeline effect. Finally, the for loop that holds the decode and fetch stage loops for the maximum allowed instructions fetches per cycle.
+The *cycle* function for the *shader_core_ctx* class performs one architecture cycle, described in the previouse sections. The first if statement checks whether the core is active and that there are instructions to complete; if neither, then the cycle does not proceed. When the cycle proceeds after the if statement, the counter associated with number of cycles a shader performs is updated. This is done via *m_stats* object unique to the core, which is of the type, *shader_core_stats*, by presenting the array with a shader ID, *m_sid* and iterating. Next, the pipeline functions are invoked backwards so that later stages finish before earlier stages and the results can flow similar to the pipeline effect. Finally, the for loop that holds the decode and fetch stage loops for the maximum allowed instructions fetches per cycle.
 
 ``` c++
 void shader_core_ctx::cycle() {
@@ -83,6 +83,16 @@ void shader_core_ctx::cycle() {
     decode();
     fetch();
   }
+}
+```
+
+### shader.h <lines 1875-2266>
+``` c++
+class shader_core_ctx : public core_t {
+  protected:
+  ...
+    
+  ...
 }
 ```
 
